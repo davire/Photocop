@@ -110,10 +110,35 @@ groupPhoto seuil = newGroup
         ps      = map (\(a,_,_) -> a) r
 
 copyGroup :: FilePath -> (LocalTime,[FilePath]) -> IO ()
-copyGroup (lt,l) = do
+copyGroup root (lt,l) = do
   -- Check if the year directory exists, or create it
   -- Check if the day directory exists, or number it
   -- Copy the files
+  let date = take 10 $ show lt
+      year = take 4 date
+      ydir = root </> year
+      ddir = ydir </> date
+
+  checkOrCreateDir ydir
+  checkOrCreateDir ddir
+
+  forM_ l $ \file -> do
+    let dst = replaceDirectory file ddir 
+    putStrLn $ "copying " ++ file ++ " to " ++ dst
+    -- copyFile l dst
+
+
+-- | Checks if a directory exists. If it doesnt, creates it.
+checkOrCreateDir path = do
+  ok <- doesDirectoryExist path
+  when (not ok) $ createDirectory path
+
+run srcPath dstPath = do
+  tz <- getCurrentTimeZone
+  l <- getFilesIO tz srcPath
+  let l'  = groupPhoto 7000 . toLocal tz . deltaDate . sortDate $ l
+  mapM_ (copyGroup dstPath) l'
+
 
 aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
@@ -129,4 +154,6 @@ test1 = test "/data/media/photos/1999"
 test2 = test "/data/img"
 
 test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
-  
+
+test4 = run "/data/media/photos_a_trier" "/data/media/photos"
+
