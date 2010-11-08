@@ -109,6 +109,11 @@ groupPhoto seuil = newGroup
         (r,xs') = span (\(a,b,c) -> c <= seuil) xs
         ps      = map (\(a,_,_) -> a) r
 
+copyGroup :: FilePath -> (LocalTime,[FilePath]) -> IO ()
+copyGroup (lt,l) = do
+  -- Check if the year directory exists, or create it
+  -- Check if the day directory exists, or number it
+  -- Copy the files
 
 aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
