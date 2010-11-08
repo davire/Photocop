@@ -68,6 +68,7 @@ getTime (path,stat) = do
   return (path,time)
 
 triDate   = sortBy (compare `on` snd)
+sortDate   = sortBy (compare `on` snd)
 
 deltaDate [] = []
 deltaDate ((p,d):xs) = (p,d,0) : loop d xs
@@ -89,7 +90,7 @@ aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 test p = do
   tz <- getCurrentTimeZone
   l <- getFilesIO tz p
-  let l'  = toLocal tz . deltaDate . triDate $ l
+  let l'  = toLocal tz . deltaDate . sortDate $ l
   let l'' = groupPhoto 7000 l'
   return l''
   
