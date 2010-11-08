@@ -19,16 +19,26 @@ import Data.Time.LocalTime
 import Data.Time.Format 
 import Graphics.Exif as Exif
 
+-- | Generic traversal of directory and its subdirectories
+-- must be supplied a function that provides
+-- a list of results, and
+-- a list of subdirectories to traverse
+-- the results from all subdirectories are concatened
+
 getFiles :: Monad m
          => (FilePath -> m ([a], [FilePath]))  -- ^ Get (files, subdirectories) of some directory
          -> FilePath                           -- ^ Root path
          -> m [ a ]
+
 getFiles lsdir = loop where
   loop path = do
     (files, subdirs) <- lsdir path
     dirs             <- mapM loop subdirs
     return $ concat (files : dirs )
 
+-- | Returns a list of images, with its date and time.
+-- If the date and time can be found in the exif data, we use it.
+-- Otherwise, we use the file's date and time
 
 getFilesIO :: TimeZone -> FilePath -> IO [ (FilePath,UTCTime) ]
 getFilesIO timezone = getFiles lsdir where
@@ -49,11 +59,18 @@ getFilesIO timezone = getFiles lsdir where
     putStrLn $ (show $ length files) ++ " files, " ++ (show $ length directories) ++ " directories."
     return (exifs, directories)
 
+-- | Associates a filename with its IO status
+-- The status can tell us wether the file is a directory or a regular file,
+-- its size, modification date and time, etc.
+getStats :: FilePath -> IO (Maybe (FilePath, FileStatus))
 getStats path = do
   handle (\(SomeException _) -> return Nothing) $ do
     status <- getFileStatus path
     return $ Just (path, status)
 
+-- | Gets the date and time of a file and its status.
+-- Prefers the date and time from exif data.
+getTime :: (FilePath, FileStatus) -> IO (FilePath, UTCTime)
 getTime (path,stat) = do
   let ftime = posixSecondsToUTCTime .realToFrac . modificationTime $ stat
   time <- handle (\(SomeException _) -> return ftime) $ do
@@ -67,16 +84,23 @@ getTime (path,stat) = do
       Just etime -> return etime
   return (path,time)
 
-triDate   = sortBy (compare `on` snd)
+-- | Sorts a list of photos,datetime by datetime.
+sortDate :: [(FilePath,UTCTime)] -> [(FilePath,UTCTime)]
 sortDate   = sortBy (compare `on` snd)
 
+-- | Computes the difference in time between two photos
+-- returns a triple of the photo, datetime, and delta
+deltaDate :: [(FilePath,UTCTime)] -> [(FilePath,UTCTime,NominalDiffTime)]
 deltaDate [] = []
 deltaDate ((p,d):xs) = (p,d,0) : loop d xs
   where loop a (x@(p,d):xs) = (p,d,diffUTCTime d a) : loop d xs
         loop _ []           = []
 
+-- | converts the datetime format so that we can "show" it
+toLocal :: TimeZone -> [(FilePath,UTCTime,NominalDiffTime)] -> [(FilePath,LocalTime,NominalDiffTime)]
 toLocal tz = map (\(a,b,c) -> (a,utcToLocalTime tz b,c))
 
+groupPhoto :: NominalDiffTime -> [(FilePath, LocalTime, NominalDiffTime)] -> [(LocalTime, [FilePath])]
 groupPhoto seuil = newGroup
   where
     newGroup []      = []
@@ -85,6 +109,8 @@ groupPhoto seuil = newGroup
         (r,xs') = span (\(a,b,c) -> c <= seuil) xs
         ps      = map (\(a,_,_) -> a) r
 
+
+aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 
 test p = do
