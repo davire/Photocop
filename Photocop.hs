@@ -68,11 +68,12 @@ groupPhoto seuil = newGroup
 
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 
-test = do
-  l <- getFilesIO "/data/media/photos/1999"
+test p = do
+  l <- getFilesIO p 
   tz <- getCurrentTimeZone
   let l'  = toLocal tz . deltaDate . triDate $ l
   let l'' = groupPhoto 7000 l'
   return l''
   
-  
+test1 = test "/data/media/photos/1999"
+test2 = test "/data/img"
