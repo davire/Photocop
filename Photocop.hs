@@ -5,7 +5,10 @@ import System.Posix.Files
 import System.Posix.Time
 import System.Posix.Types
 import System.FilePath
+import System.Locale
 import Control.Monad
+import Control.Monad.Trans
+import Control.Monad.Maybe
 import Control.Exception
 import Data.Char
 import Data.List
@@ -13,6 +16,8 @@ import Data.Function
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import Data.Time.LocalTime
+import Data.Time.Format 
+import Graphics.Exif as Exif
 
 getFiles :: Monad m
          => (FilePath -> m ([a], [FilePath]))  -- ^ Get (files, subdirectories) of some directory
@@ -25,8 +30,8 @@ getFiles lsdir = loop where
     return $ concat (files : dirs )
 
 
---getFilesIO :: FilePath -> IO [ (FilePath,EpochTime) ]
-getFilesIO = getFiles lsdir where
+getFilesIO :: TimeZone -> FilePath -> IO [ (FilePath,UTCTime) ]
+getFilesIO timezone = getFiles lsdir where
 
   lsdir dir = do
     putStr $ "directory : " ++ dir ++ " ... "
@@ -34,20 +39,33 @@ getFilesIO = getFiles lsdir where
     let valid n = not (elem n [".", ".."])
         isOk  n = elem (map toLower $ takeExtension n) [".jpg",".jpeg"]   
 
-    stats <- forM (filter valid contents) $ \name -> do
-      let path = dir </> name
-      handle (\(SomeException _) -> return Nothing) $ do
-        status <- getFileStatus path
-        return $ Just (path, status)
+    stats <- mapM (getStats . (dir </>) ) (filter valid contents)
 
     let directories = [p | Just (p, stat) <- stats, isDirectory stat]
-    let files       = [(p,time stat) | Just (p, stat) <- stats, isOk p,isRegularFile stat]
+        files       = [(p,stat) | Just (p, stat) <- stats, isOk p,isRegularFile stat]
+
+    exifs <- mapM getTime files 
+
     putStrLn $ (show $ length files) ++ " files, " ++ (show $ length directories) ++ " directories."
-    return (files, directories)
+    return (exifs, directories)
 
-  time = posixSecondsToUTCTime .realToFrac . modificationTime
+getStats path = do
+  handle (\(SomeException _) -> return Nothing) $ do
+    status <- getFileStatus path
+    return $ Just (path, status)
 
-
+getTime (path,stat) = do
+  let ftime = posixSecondsToUTCTime .realToFrac . modificationTime $ stat
+  time <- handle (\(SomeException _) -> return ftime) $ do
+    exif <- Exif.fromFile path
+    let getExifTime = MaybeT . liftIO . Exif.getTag exif
+    res <- runMaybeT $ do
+      tmp <- msum . map getExifTime $ [ "DateTimeOriginal", "DateTimeDigitized", "DateTime" ]
+      MaybeT . return . parseTime defaultTimeLocale "%Y:%m:%d %H:%M:%S" $ tmp
+    case res of
+      Nothing    -> return ftime
+      Just etime -> return etime
+  return (path,time)
 
 triDate   = sortBy (compare `on` snd)
 
@@ -69,11 +87,14 @@ groupPhoto seuil = newGroup
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 
 test p = do
-  l <- getFilesIO p 
   tz <- getCurrentTimeZone
+  l <- getFilesIO tz p
   let l'  = toLocal tz . deltaDate . triDate $ l
   let l'' = groupPhoto 7000 l'
   return l''
   
 test1 = test "/data/media/photos/1999"
 test2 = test "/data/img"
+
+test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
+  
