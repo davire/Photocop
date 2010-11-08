@@ -29,6 +29,7 @@ getFiles lsdir = loop where
 getFilesIO = getFiles lsdir where
 
   lsdir dir = do
+    putStr $ "directory : " ++ dir ++ " ... "
     contents <- getDirectoryContents dir
     let valid n = not (elem n [".", ".."])
         isOk  n = elem (map toLower $ takeExtension n) [".jpg",".jpeg"]   
@@ -38,9 +39,12 @@ getFilesIO = getFiles lsdir where
       handle (\(SomeException _) -> return Nothing) $ do
         status <- getFileStatus path
         return $ Just (path, status)
+
     let directories = [p | Just (p, stat) <- stats, isDirectory stat]
     let files       = [(p,time stat) | Just (p, stat) <- stats, isOk p,isRegularFile stat]
+    putStrLn $ (show $ length files) ++ " files, " ++ (show $ length directories) ++ " directories."
     return (files, directories)
+
   time = posixSecondsToUTCTime .realToFrac . modificationTime
 
 
