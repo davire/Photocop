@@ -7,6 +7,7 @@ import System.Posix.Types
 import System.FilePath
 import System.Locale
 import Control.Monad
+import Control.Monad.Reader
 import Control.Monad.Trans
 import Control.Monad.Maybe
 import Control.Exception
@@ -18,6 +19,29 @@ import Data.Time.Clock.POSIX
 import Data.Time.LocalTime
 import Data.Time.Format 
 import Graphics.Exif as Exif
+
+-- The Reader/IO combined monad, where Reader stores my options.
+type OPIO = ReaderT Opts IO
+
+data Opts = Opts {
+    verbose   :: String -> IO (),
+    isDryRun  :: Bool,
+    seuil     :: NominalDiffTime
+  }
+
+putLog s = do
+  opts <- ask
+  liftIO $ verbose opts s
+
+putLogLn s = putLog (s++"\n")
+
+notDryRun :: IO () -> OPIO ()
+notDryRun action = do
+  opts <- ask
+  if isDryRun opts
+    then return ()
+    else liftIO $ action
+
 
 -- | Generic traversal of directory and its subdirectories
 -- must be supplied a function that provides
@@ -40,12 +64,12 @@ getFiles lsdir = loop where
 -- If the date and time can be found in the exif data, we use it.
 -- Otherwise, we use the file's date and time
 
-getFilesIO :: TimeZone -> FilePath -> IO [ (FilePath,UTCTime) ]
+getFilesIO :: TimeZone -> FilePath -> OPIO [ (FilePath,UTCTime) ]
 getFilesIO timezone = getFiles lsdir where
 
   lsdir dir = do
-    putStr $ "directory : " ++ dir ++ " ... "
-    contents <- getDirectoryContents dir
+    putLog $ "directory : " ++ dir ++ " ... "
+    contents <- liftIO $ getDirectoryContents dir
     let valid n = not (elem n [".", ".."])
         isOk  n = elem (map toLower $ takeExtension n) [".jpg",".jpeg"]   
 
@@ -56,24 +80,24 @@ getFilesIO timezone = getFiles lsdir where
 
     exifs <- mapM getTime files 
 
-    putStrLn $ (show $ length files) ++ " files, " ++ (show $ length directories) ++ " directories."
+    putLogLn $ (show $ length files) ++ " files, " ++ (show $ length directories) ++ " directories."
     return (exifs, directories)
 
 -- | Associates a filename with its IO status
 -- The status can tell us wether the file is a directory or a regular file,
 -- its size, modification date and time, etc.
-getStats :: FilePath -> IO (Maybe (FilePath, FileStatus))
-getStats path = do
+getStats :: FilePath -> OPIO (Maybe (FilePath, FileStatus))
+getStats path = liftIO $ do
   handle (\(SomeException _) -> return Nothing) $ do
     status <- getFileStatus path
     return $ Just (path, status)
 
 -- | Gets the date and time of a file and its status.
 -- Prefers the date and time from exif data.
-getTime :: (FilePath, FileStatus) -> IO (FilePath, UTCTime)
+getTime :: (FilePath, FileStatus) -> OPIO (FilePath, UTCTime)
 getTime (path,stat) = do
   let ftime = posixSecondsToUTCTime .realToFrac . modificationTime $ stat
-  time <- handle (\(SomeException _) -> return ftime) $ do
+  time <- liftIO $ handle (\(SomeException _) -> return ftime) $ do
     exif <- Exif.fromFile path
     let getExifTime = MaybeT . liftIO . Exif.getTag exif
     res <- runMaybeT $ do
@@ -109,8 +133,8 @@ groupPhoto seuil = newGroup
         (r,xs') = span (\(a,b,c) -> c <= seuil) xs
         ps      = map (\(a,_,_) -> a) r
 
-copyGroup :: FilePath -> (LocalTime,[FilePath]) -> IO ()
-copyGroup root (lt,l) = do
+copyGroup :: Opts -> FilePath -> (LocalTime,[FilePath]) -> OPIO ()
+copyGroup opts root (lt,l) = do
   -- Check if the year directory exists, or create it
   -- Check if the day directory exists, or number it
   -- Copy the files
@@ -119,41 +143,46 @@ copyGroup root (lt,l) = do
       ydir = root </> year
       ddir = ydir </> date
 
-  checkOrCreateDir ydir
-  checkOrCreateDir ddir
+  putLogLn $ "Checking directory " ++ ydir
+  liftIO $ do ok <- doesDirectoryExist ydir
+              when (not ok) $ createDirectory ydir
+  ddir' <- checkOrCreateDir ddir
 
   forM_ l $ \file -> do
-    let dst = replaceDirectory file ddir 
-    putStrLn $ "copying " ++ file ++ " to " ++ dst
-    -- copyFile l dst
+    let dst = replaceDirectory file ddir'
+    putLogLn $ "copying " ++ file ++ " to " ++ dst
+    notDryRun $ copyFile file dst
 
 
 -- | Checks if a directory exists. If it doesnt, creates it.
-checkOrCreateDir path = do
-  ok <- doesDirectoryExist path
-  when (not ok) $ createDirectory path
+-- Now if it does, append a number to the directory, and try again
+checkOrCreateDir path = go 1
+  where
+    go n = do
+      let path' = path ++ if (n>1) then " " ++ show n else ""
+      putLogLn $ "Checking directory " ++ path'
+      ok <- liftIO $ doesDirectoryExist path'
+      if ok then go (n+1) else liftIO $ createDirectory path' >> return path'
 
-run srcPath dstPath = do
-  tz <- getCurrentTimeZone
+
+-- | Does all the stuff
+run opts srcPath dstPath = flip runReaderT opts $ do
+  tz <- liftIO $ getCurrentTimeZone
   l <- getFilesIO tz srcPath
-  let l'  = groupPhoto 7000 . toLocal tz . deltaDate . sortDate $ l
-  mapM_ (copyGroup dstPath) l'
+  let s = seuil opts
+      l'  = groupPhoto s . toLocal tz . deltaDate . sortDate $ l
+  mapM_ (copyGroup opts dstPath) l'
 
 
 aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 
-test p = do
-  tz <- getCurrentTimeZone
-  l <- getFilesIO tz p
-  let l'  = toLocal tz . deltaDate . sortDate $ l
-  let l'' = groupPhoto 7000 l'
-  return l''
-  
-test1 = test "/data/media/photos/1999"
-test2 = test "/data/img"
+
+
 
 test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
 
-test4 = run "/data/media/photos_a_trier" "/data/media/photos"
+test4 = run (Opts { verbose=putStr, isDryRun = False, seuil=7000})
+            "/data/media/photos_a_trier/dcimZzzZZ"
+            "/data/media/testphotos"
 
