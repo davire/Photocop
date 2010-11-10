@@ -151,7 +151,11 @@ copyGroup opts root (lt,l) = do
   forM_ l $ \file -> do
     let dst = replaceDirectory file ddir'
     putLogLn $ "copying " ++ file ++ " to " ++ dst
-    notDryRun $ copyFile file dst
+    notDryRun $ do
+      copyFile file dst
+      let t1 = 
+          t2 = utcTimeToPOSIXSeconds . localTimeToUTC tz
+      setFileTimes dst t1 t2
 
 
 -- | Checks if a directory exists. If it doesnt, creates it.
