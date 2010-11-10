@@ -147,9 +147,12 @@ copyGroup root l = do
       ydir = root </> year
       ddir = ydir </> date
 
-  putLogLn $ "Checking directory " ++ ydir
-  liftIO $ do ok <- doesDirectoryExist ydir
-              unless ok $ createDirectory ydir
+  putLog $ "Checking directory " ++ ydir ++ "..."
+  ok <- liftIO $ doesDirectoryExist ydir
+  if ok then putLogLn "ok."
+        else do liftIO $ createDirectory ydir
+                putLogLn "created."
+
   ddir' <- checkOrCreateDir ddir
 
   let copy (file,etime) = do
@@ -169,9 +172,13 @@ checkOrCreateDir path = go (1::Int)
   where
     go n = do
       let path' = path ++ if n > 1 then ' ' : show n else ""
-      putLogLn $ "Checking directory " ++ path'
+      putLog $ "Checking directory " ++ path' ++ "..."
       ok <- liftIO $ doesDirectoryExist path'
-      if ok then go (n+1) else liftIO $ createDirectory path' >> return path'
+      if ok then do putLogLn "exists."
+                    go (n+1)
+            else do liftIO $ createDirectory path'
+                    putLogLn "created."
+                    return path'
 
 -- | Does all the stuff
 run :: Opts -> FilePath -> FilePath -> IO ()
