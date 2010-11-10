@@ -1,10 +1,11 @@
 module Main where
 
-import System.Directory(copyFile,doesDirectoryExist,createDirectory,getDirectoryContents)
+import System.Directory(copyFile,doesDirectoryExist,createDirectory,getDirectoryContents,getHomeDirectory)
 import System.Posix.Files(setFileTimes,FileStatus,getFileStatus,modificationTime,isDirectory,isRegularFile)
 import System.Posix.Types(EpochTime)
 import System.FilePath((</>),replaceDirectory,takeExtension)
 import System.Locale(defaultTimeLocale)
+import System.Environment(getArgs)
 import Control.Monad(unless,msum)
 import Control.Monad.Reader(runReaderT,ReaderT,ask)
 import Control.Monad.Trans(liftIO)
@@ -204,4 +205,20 @@ test4 = do
            "/data/media/testphotos"
 
 main :: IO ()
-main = test4
+main = do
+  home <- getHomeDirectory
+  let cfg_file = home </> ".photocop"
+  cfg <- handle (\(SomeException _) -> return "") $ readFile cfg_file
+  case lines cfg of
+    [ d,s ] -> args d (read s :: Int)
+    _       -> putStrLn $ "config file (" ++ cfg_file ++ ") missing."
+
+args :: FilePath -> Int -> IO ()
+args d s = do
+  a <- getArgs
+  case a of
+    [ src ] -> do o <- mkOpts putStr False s
+                  run o src d 
+    _       -> putStrLn "Usage : photocop source_directory."
+
+  
