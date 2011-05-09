@@ -20,6 +20,18 @@ import Data.Time.LocalTime
 import Data.Time.Format 
 import Graphics.Exif as Exif
 
+
+{- 
+
+setFileTimes     : EpochTime
+exif             : String
+modificationTime : EpochTime
+
+EpochTime -> UTCTime    posixSecondsToUTCTime (realToFrac :: POSIXTime)
+
+
+-}
+
 -- The Reader/IO combined monad, where Reader stores my options.
 type OPIO = ReaderT Opts IO
 
@@ -121,45 +133,53 @@ deltaDate ((p,d):xs) = (p,d,0) : loop d xs
         loop _ []           = []
 
 -- | converts the datetime format so that we can "show" it
-toLocal :: TimeZone -> [(FilePath,UTCTime,NominalDiffTime)] -> [(FilePath,LocalTime,NominalDiffTime)]
-toLocal tz = map (\(a,b,c) -> (a,utcToLocalTime tz b,c))
+-- toLocal :: TimeZone -> [(FilePath,UTCTime,NominalDiffTime)] -> [(FilePath,LocalTime,NominalDiffTime)]
+-- toLocal tz = map (\(a,b,c) -> (a,utcToLocalTime tz b,c))
 
-groupPhoto :: NominalDiffTime -> [(FilePath, LocalTime, NominalDiffTime)] -> [(LocalTime, [FilePath])]
-groupPhoto seuil = newGroup
+groupPhoto :: NominalDiffTime
+           -> [(FilePath, UTCTime, NominalDiffTime)]
+           -> [[(FilePath,UTCTime)]]
+groupPhoto seuil = go
   where
-    newGroup []      = []
-    newGroup ((p,d,t):xs) = (d,p:ps) : newGroup xs'
+    go [] = []
+    go l  = l' : go ls
       where
-        (r,xs') = span (\(a,b,c) -> c <= seuil) xs
-        ps      = map (\(a,_,_) -> a) r
+        (lt,ls) = span (\(a,b,c) -> c <= seuil) l
+        l'      = map (\(a,b,c) -> (a,b)) lt
+        
 
-copyGroup :: Opts -> FilePath -> (LocalTime,[FilePath]) -> OPIO ()
-copyGroup opts root (lt,l) = do
-  -- Check if the year directory exists, or create it
-  -- Check if the day directory exists, or number it
-  -- Copy the files
-  let date = take 10 $ show lt
+copyGroup  :: TimeZone
+           -> FilePath
+           -> [(FilePath,UTCTime)]
+           -> OPIO ()
+copyGroup tz root l = do
+  let date = take 10 . show . snd . head $ l
       year = take 4 date
       ydir = root </> year
       ddir = ydir </> date
 
+  -- Checks if the year directory exists, or creates it.
+  -- Should really check all directory parts.               
   putLogLn $ "Checking directory " ++ ydir
   liftIO $ do ok <- doesDirectoryExist ydir
               when (not ok) $ createDirectory ydir
+
+  -- Checks if the day directory exists, or give it a number
   ddir' <- checkOrCreateDir ddir
 
-  forM_ l $ \file -> do
+  -- Copy the files
+  forM_ l $ \(file,utc) -> do
     let dst = replaceDirectory file ddir'
     putLogLn $ "copying " ++ file ++ " to " ++ dst
     notDryRun $ do
       copyFile file dst
-      let t1 = 
-          t2 = utcTimeToPOSIXSeconds . localTimeToUTC tz
-      setFileTimes dst t1 t2
+      let t2 = fromInteger $ toInteger $ floor $ utcTimeToPOSIXSeconds utc :: EpochTime
+      setFileTimes dst t2 t2
 
 
 -- | Checks if a directory exists. If it doesnt, creates it.
 -- Now if it does, append a number to the directory, and try again
+checkOrCreateDir :: String -> OPIO String
 checkOrCreateDir path = go 1
   where
     go n = do
@@ -174,9 +194,8 @@ run opts srcPath dstPath = flip runReaderT opts $ do
   tz <- liftIO $ getCurrentTimeZone
   l <- getFilesIO tz srcPath
   let s = seuil opts
-      l'  = groupPhoto s . toLocal tz . deltaDate . sortDate $ l
-  mapM_ (copyGroup opts dstPath) l'
-
+      l'  = groupPhoto s . deltaDate . sortDate $ l
+  mapM_ (copyGroup tz dstPath) l'
 
 aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
@@ -187,6 +206,6 @@ aff (a,b) = putStrLn $ (show a) ++ "  "++(show $ length b)++" photo(s)."
 test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
 
 test4 = run (Opts { verbose=putStr, isDryRun = False, seuil=7000})
-            "/data/media/photos_a_trier/dcimZzzZZ"
-            "/data/media/testphotos"
+            "/media/disk/"
+            "/data/media/"
 
