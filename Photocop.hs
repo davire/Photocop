@@ -21,6 +21,18 @@ import Data.Time.LocalTime(getCurrentTimeZone,LocalTime,utcToLocalTime,TimeZone)
 import Data.Time.Format(parseTime)
 import Graphics.Exif as Exif (fromFile,getTag)
 
+
+{- 
+
+setFileTimes     : EpochTime
+exif             : String
+modificationTime : EpochTime
+
+EpochTime -> UTCTime    posixSecondsToUTCTime (realToFrac :: POSIXTime)
+
+
+-}
+
 -- The Reader/IO combined monad, where Reader stores my options.
 type OPIO = ReaderT Opts IO
 
@@ -126,7 +138,6 @@ deltaDate ((p0,d0):xs) = (p0,d0,0) : loop d0 xs
 -- toLocal :: TimeZone -> [(FilePath,UTCTime,NominalDiffTime)] -> [(FilePath,LocalTime,NominalDiffTime)]
 -- toLocal tz = map (\(a,b,c) -> (a,utcToLocalTime tz b,c))
 
-
 groupPhoto :: Int -> [(FilePath, EpochTime,Int)] -> [[(FilePath,EpochTime)]]
 groupPhoto s = (map.map) simplify . groupBy ok
   where
@@ -147,12 +158,15 @@ copyGroup root l = do
       ydir = root </> year
       ddir = ydir </> date
 
+  -- Checks if the year directory exists, or creates it.
+  -- Should really check all directory parts.
   putLog $ "Checking directory " ++ ydir ++ "..."
   ok <- liftIO $ doesDirectoryExist ydir
   if ok then putLogLn "ok."
         else do liftIO $ createDirectory ydir
                 putLogLn "created."
 
+  -- Checks if the day directory exists, or give it a number
   ddir' <- checkOrCreateDir ddir
 
   let copy (file,etime) = do
@@ -161,7 +175,7 @@ copyGroup root l = do
       notDryRun $ do
         copyFile file dst
         setFileTimes dst etime etime
-
+  -- Copy the files
   mapM_ copy l
 
 -- | Checks if a directory exists. If it doesnt, creates it.
@@ -183,15 +197,14 @@ checkOrCreateDir path = go (1::Int)
 -- | Does all the stuff
 run :: Opts -> FilePath -> FilePath -> IO ()
 run opts srcPath dstPath = flip runReaderT opts $ do
-    l <- getFilesIO srcPath
-    let s = seuil opts
-        l'  = groupPhoto s . deltaDate . sortDate $ l
-    mapM_ (copyGroup dstPath) l'
+  l <- getFilesIO srcPath
+  let s = seuil opts
+      l'  = groupPhoto s . deltaDate . sortDate $ l
+  mapM_ (copyGroup dstPath) l'
 
 
 aff :: (LocalTime, [FilePath]) -> IO ()
 aff (a,b) = putStrLn $ show a ++ "  " ++ show ( length b) ++ " photo(s)."
-
 
 mkOpts :: (String -> IO ())
        -> Bool
@@ -228,4 +241,3 @@ args d s = do
                   run o src d 
     _       -> putStrLn "Usage : photocop source_directory."
 
-  
