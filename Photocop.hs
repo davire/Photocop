@@ -39,10 +39,11 @@ type OPIO = ReaderT Opts IO
 data Opts = Opts {
     verbose   :: String -> IO (),
     isDryRun  :: Bool,
-    seuil     :: Int,
+    treshold  :: Int,
     tzone     :: TimeZone
   }
 
+-- Logging functions
 putLog :: String -> OPIO ()
 putLog s = do
   opts <- ask
@@ -51,6 +52,7 @@ putLog s = do
 putLogLn :: String -> OPIO ()
 putLogLn s = putLog (s++"\n")
 
+-- Actions to perform or not depending on the options
 notDryRun :: IO () -> OPIO ()
 notDryRun action = do
   opts <- ask
@@ -100,6 +102,7 @@ getFilesIO = getFiles lsdir where
 -- | Associates a filename with its IO status
 -- The status can tell us wether the file is a directory or a regular file,
 -- its size, modification date and time, etc.
+
 getStats :: FilePath -> OPIO (Maybe (FilePath, FileStatus))
 getStats path = liftIO $  handle (\(SomeException _) -> return Nothing) $ do
   status <- getFileStatus path
@@ -107,6 +110,7 @@ getStats path = liftIO $  handle (\(SomeException _) -> return Nothing) $ do
 
 -- | Gets the date and time of a file and its status.
 -- Prefers the date and time from exif data.
+
 getTime :: (FilePath, FileStatus) -> OPIO (FilePath, EpochTime)
 getTime (path,stat) = do
   let ftime                 = modificationTime stat
@@ -175,7 +179,8 @@ copyGroup root l = do
       notDryRun $ do
         copyFile file dst
         setFileTimes dst etime etime
-  -- Copy the files
+
+ -- Copy the files
   mapM_ copy l
 
 -- | Checks if a directory exists. If it doesnt, creates it.
@@ -218,11 +223,11 @@ mkOpts f d s = do
 -- test3 :: IO [(String, String)]
 -- test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
 
-test4 :: IO ()
-test4 = do
-  opts <- mkOpts putStr False 7000
-  run opts "/data/media/photos_a_trier/dcimZzzZZ"
-           "/data/media/testphotos"
+-- test4 :: IO ()
+-- test4 = do
+--   opts <- mkOpts putStr False 7000
+--   run opts "/data/media/photos_a_trier/dcimZzzZZ"
+--            "/data/media/testphotos"
 
 main :: IO ()
 main = do
