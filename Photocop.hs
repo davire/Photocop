@@ -39,7 +39,7 @@ type OPIO = ReaderT Opts IO
 data Opts = Opts {
     verbose   :: String -> IO (),
     isDryRun  :: Bool,
-    treshold  :: Int,
+    threshold  :: Int,
     tzone     :: TimeZone
   }
 
@@ -203,7 +203,7 @@ checkOrCreateDir path = go (1::Int)
 run :: Opts -> FilePath -> FilePath -> IO ()
 run opts srcPath dstPath = flip runReaderT opts $ do
   l <- getFilesIO srcPath
-  let s = seuil opts
+  let s = threshold opts
       l'  = groupPhoto s . deltaDate . sortDate $ l
   mapM_ (copyGroup dstPath) l'
 
@@ -218,7 +218,7 @@ mkOpts :: (String -> IO ())
 
 mkOpts f d s = do
   tz <- getCurrentTimeZone
-  return Opts { verbose=f , isDryRun = d , seuil=s, tzone=tz }
+  return Opts { verbose=f , isDryRun = d , threshold=s, tzone=tz }
 
 -- test3 :: IO [(String, String)]
 -- test3 = Exif.fromFile "/data/perso/media/imatrier/img_1525.jpg" >>= Exif.allTags
