@@ -1,1 +1,1 @@
-ghc --make -O2 -funbox-strict-fields -Wall Photocop.hs -o photocop
+ghc --make -O2 -threaded -funbox-strict-fields -Wall -fno-warn-unused-do-bind  PhotoGui.hs -o photogui
